@@ -54,11 +54,11 @@ void app_init(void)
 	u_printf("app_init\n");
 }
 
-/********************************
-FUNC: 测试回调监听串口与数据存储
+/***************************************************
+FUNC: 测试回调监听串口与数据存储接口，测试Git备份
 NAME: app_main.c
-TIME: 2017年3月2日 11:16:15
-********************************/
+TIME: 2017-4-24 09:38:19
+***************************************************/
 void USER_FUNC RecvMsg(void*);
 void USER_FUNC CheckPingCount(void*);
 void USER_FUNC LogicHandle(char*);
@@ -102,6 +102,7 @@ static int Clock_M;
 //HTTP请求变量
 char mac[16];
 char httpURL[32] = "http://115.28.179.114:8885";
+
 
 //WSJ逻辑处理
 void USER_FUNC LogicHandle(char *Content)
