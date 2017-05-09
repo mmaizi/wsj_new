@@ -65,7 +65,8 @@ void USER_FUNC LogicHandle(char*);
 void USER_FUNC TimedFeed(void *arg);
 void USER_FUNC correctTime(void* arg);
 void USER_FUNC initNTP(void);
-int  USER_FUNC MyHttpGet(int, int);
+int  USER_FUNC DataStorage(int, int);
+int  USER_FUNC GetUser(void);
 void USER_FUNC HttpInit(void);
 int  USER_FUNC BCDToInt(char bcd);
 int  USER_FUNC create_udp(void);
@@ -101,6 +102,7 @@ static int Clock_M;
 
 //HTTP请求变量
 char mac[16];
+char userName[30];		//用户名
 char httpURL[32] = "http://115.28.179.114:8885";
 
 
@@ -263,6 +265,15 @@ void USER_FUNC RecvMsg(void* arg)
 	char *ContentBodyEnd = "</body>";
 	char ContentBody[30];
 
+	sleep(3);
+	GetUser();
+
+	//获取失败则再获取一次
+	if (userName[0] == 0){
+		sleep(3);
+		GetUser();
+	}
+
 
 	//创建喂食线程
 	if (hfthread_create(fdthread, "feed", 256, NULL, HFTHREAD_PRIORITIES_LOW, NULL, NULL) != HF_SUCCESS)
@@ -405,7 +416,7 @@ int USER_FUNC app_main (void)
 	}
 	
 	my_main();
-	
+
 	//创建检测全局变量PingCount线程
 	hfthread_create(CheckPingCount, "CheckPingCount", 256, NULL, HFTHREAD_PRIORITIES_LOW, NULL, NULL);
 	
@@ -496,14 +507,14 @@ void USER_FUNC TimedFeed(void *arg)
 							{
 								CtlFeed[3]=(char)(atoi(everyTimeCmd[3]) * 3);
 								hfuart_send(Huart, CtlFeed, sizeof(CtlFeed), 0);
-								// MyHttpGet(1, atoi(everyTimeCmd[3]) * 3);
+								// DataStorage(1, atoi(everyTimeCmd[3]) * 3);
 								break;
 							}
 							case 5: case 6: case 7: case 8:
 							{
 								CtlWater[3]=(char)(atoi(everyTimeCmd[3]) * 4);
 								hfuart_send(Huart, CtlWater, sizeof(CtlWater), 0);
-								// MyHttpGet(0, atoi(everyTimeCmd[3]) * 4);
+								// DataStorage(0, atoi(everyTimeCmd[3]) * 4);
 								break;
 							}
 							default:
@@ -613,14 +624,77 @@ void USER_FUNC initNTP(void)
 
 
 //HTTP的GET方法,用于数据存储
-int USER_FUNC MyHttpGet(int actType, int actTime)
+int USER_FUNC DataStorage(int actType, int actTime)
 {
 	httpc_req_t  http_req;
 	http_session_t hhttp = 0;
 
 	char *sendStream_1 = "/wacw/WebServlet?paraName={\"name\":method,\"value\":PhoneControl},";
-	char *sendStream_2 = "{\"name\":user,\"value\":18252586492},{\"name\":mac,\"value\":";
+	char *sendStream_2 = "{\"name\":user,\"value\":";
+	char *sendStream_3 = "},{\"name\":mac,\"value\":";
 	char *sendStream_4 = "},{\"name\":cmd,\"value\":action#";
+	char sendBuf[256];
+
+	char content_data[100];
+	int read_size=0;
+	int result = 0;
+	tls_init_config_t  *tls_cfg=NULL;
+	char *test_url = httpURL;
+	
+	bzero(&http_req, sizeof(http_req));
+	http_req.type = HTTP_GET;
+	http_req.version = HTTP_VER_1_1;
+
+	if((result = hfhttp_open_session(&hhttp, test_url, 0, tls_cfg, 3)) != HF_SUCCESS)
+	{
+		u_printf("http open fail\n");
+	}
+
+	memset(sendBuf, 0, sizeof(sendBuf));
+	strcat(sendBuf, sendStream_1);
+	strcat(sendBuf, sendStream_2);
+	strcat(sendBuf, userName);
+	strcat(sendBuf, sendStream_3);
+	strcat(sendBuf, mac);
+	strcat(sendBuf, sendStream_4);
+	sprintf(sendBuf, "%s%d,%d,", sendBuf, actType, actTime);
+
+	http_req.resource = sendBuf;
+	u_printf("sendBuf: %s\n", sendBuf);
+
+	hfhttp_prepare_req(hhttp, &http_req, HDR_ADD_CONN_CLOSE);
+
+	if((result = hfhttp_send_request(hhttp, &http_req)) != HF_SUCCESS)
+	{
+		u_printf("http send request fail\n");
+	}
+
+	memset(content_data, 0, sizeof(content_data));
+	while((read_size = hfhttp_read_content(hhttp, content_data, 100)) > 0)
+	{
+		u_printf("content_data: %s\n", content_data);
+		u_printf("read_size: %d\n", read_size);
+	}
+	
+	if(hhttp != 0)
+		hfhttp_close_session(&hhttp);
+
+	return result;
+
+}
+
+
+//HTTP初始化当前用户
+int USER_FUNC GetUser(void)
+{
+	httpc_req_t  http_req;
+	http_session_t hhttp = 0;
+
+	char *sendStream_1 = "/wacw/WebServlet?paraName={\"name\":method,\"value\":QueryUserByMac},";
+	char *sendStream_2 = "{\"name\":mac,\"value\":";
+	char *sendStream_4 = "}";
+	char *userHead = "{\'userName\':\'";
+	char *userTail = "\'}\"}";
 	char sendBuf[256];
 
 	char content_data[100];
@@ -643,7 +717,7 @@ int USER_FUNC MyHttpGet(int actType, int actTime)
 	strcat(sendBuf, sendStream_2);
 	strcat(sendBuf, mac);
 	strcat(sendBuf, sendStream_4);
-	sprintf(sendBuf, "%s%d,%d,", sendBuf, actType, actTime);
+	// sprintf(sendBuf, "%s", sendBuf);
 
 	http_req.resource = sendBuf;
 	u_printf("sendBuf: %s\n", sendBuf);
@@ -658,8 +732,11 @@ int USER_FUNC MyHttpGet(int actType, int actTime)
 	memset(content_data, 0, sizeof(content_data));
 	while((read_size = hfhttp_read_content(hhttp, content_data, 100)) > 0)
 	{
-		u_printf("content_data: %s\n", content_data);
-		u_printf("read_size: %d\n", read_size);
+		memset(userName, 0, sizeof(userName));
+		// u_printf("GetUserData: %s\n", content_data);
+		u_printf("DataSize: %d\n", read_size);
+		GetBetweenStrs(content_data, userHead, userTail, userName);
+		u_printf("userName: %s\n", userName);
 	}
 	
 	if(hhttp != 0)
@@ -700,12 +777,12 @@ static int USER_FUNC uart_recv_callback(uint32_t event,char *data,uint32_t len,u
 	temp = BCDToInt(data[0]);
 	if (strcmp(data, "fd") == 0 || temp == 66)
 	{
-		MyHttpGet(1, 3);
+		DataStorage(1, 3);
 		sendto(udp_fd, data, sizeof(data), 0, (struct sockaddr *)&sevraddr, sizeof(sevraddr));
 	}
 	else if (strcmp(data, "wt") == 0 || temp == 77)
 	{
-		MyHttpGet(0, 4);
+		DataStorage(0, 4);
 		sendto(udp_fd, data, sizeof(data), 0, (struct sockaddr *)&sevraddr, sizeof(sevraddr));
 	}
 	else if (temp < 24)		//防止将f(66)及w(77)当成时间进行更新
